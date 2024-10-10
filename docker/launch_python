@@ -1,0 +1,4 @@
+set -e
+NAME=propto-token-python
+docker build . -t $NAME -f Dockerfile.python
+docker run --rm -it -v $PWD/..:/mnt -w /mnt/tools --name $NAME $NAME bash

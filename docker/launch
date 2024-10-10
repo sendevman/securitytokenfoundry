@@ -1,0 +1,4 @@
+set -e
+NAME=propto-token
+docker build . -t $NAME 
+docker run --rm -it -v $PWD/..:/mnt -w /mnt --name $NAME $NAME sh
