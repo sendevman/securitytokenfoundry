@@ -3,7 +3,6 @@ pragma solidity ^0.8.18;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "src/interfaces/IMainExchange.sol";
-import "src/interfaces/IOrderBook.sol";
 
 interface IDSIP is IERC20 {
 
@@ -20,7 +19,6 @@ interface IDSIP is IERC20 {
   // function mintWithoutPayment(address to, uint256 tokenAmount) external;
   // function mintWithPayment(address to, uint256 tokenAmount) external;
   function forceTransfer(address from, address to, uint256 amount) external returns (bool);
-  function transferFromWithFee(address sender, address recipient, uint256 amount) external returns (bool);
 
   function setInitialSeller(address _seller) external;
   function setMainExchange(IMainExchange _mainExchange) external;

@@ -10,6 +10,7 @@ interface IMainExchange {
 
   error DSIPNotWhitelisted(address account);
   error DSIPDirectTransfersNotAllowed();
+  error DSIPNotKYCListed(address account);
 
   event SetDividendPayer(address indexed dividendPayer);
   event SetDSIPToken(IDSIP indexed dsipToken);
@@ -29,6 +30,7 @@ interface IMainExchange {
   function setPartnerManager(IWhiteListManager _partnerManager) external;
   function setOrderBook(IOrderBook _orderBook) external;
   function setDividendPayer(address _dividendPayer) external;
+  function setDSIPPrice(uint256 _DSIPPrice) external;
   function getWhiteListed(address account) external view returns (bool);
   function getPartner(address sender, address recipient) external view returns (bool);
   function getOrderBook() external view returns (IOrderBook);
@@ -39,14 +41,24 @@ interface IMainExchange {
   function redeemDividends(address recipient, uint256 lastIndex) external;
   function getLastPaymentToAddressIndex(address _address) external view returns (uint256);
   function getLastPaymentTermIndex() external view returns (uint256);
-  function setFeeToken(IERC20 token) external;
-  function setFeeStructure(uint16 buyerPrimaryMarketFee, uint16 sellerPrimaryMarketFee, uint16 buyerSecondaryMarketFee, uint16 sellerSecondaryMarketFee, uint16 dividendFeeReceiver, uint16 dividendFeeSender) external;
-  function setFeeReceiverShares(uint8 marketType, address receiver, uint256 shares) external;
+  // function setFeeToken(IERC20 token) external;
+  function setFeeStructure(
+    uint16 buyerPrimaryMarketFee,
+    uint16 sellerPrimaryMarketFee,
+    uint16 referralPrimaryMarketFee,
+    uint16 emergencyPrimaryMarketFee,
+    uint16 buyerSecondaryMarketFee,
+    uint16 sellerSecondaryMarketFee,
+    uint16 referralSecondaryMarketFee,
+    uint16 emergencySecondaryMarketFee,
+    uint16 dividendFeeReceiver,
+    uint16 dividendFeeSender
+  ) external;
   function redeemFee(uint8 marketType, IERC20 token, address recipient) external;
-  function placeOrder(bool isBuyOrder, uint256 amountSecurityToken, uint256 amountSaleToken, uint256 expiryTimestamp) external returns (uint256);
+  function placeOrder(bool isBuyOrder, uint256 amountDSIPToken, uint256 amountPROPTOToken, uint256 expiryTimestamp) external returns (uint256);
   function matchOrders(uint256 order1Id, uint256 order2Id) external;
   function matchOrdersBatch(uint256[][2] memory orderPairs) external;
-  function placeAndMatchOrder(bool isBuyOrder, uint256 amountSecurityToken, uint256 amountSaleToken, uint256 orderId) external;
+  function placeAndMatchOrder(bool isBuyOrder, uint256 amountDSIPToken, uint256 amountPROPTOToken, uint256 orderId) external;
   function setMaxPriceDiffForNewOrdersPct(uint8 _pct) external;
   function setLockingTimeSeconds(uint256 lockingTime) external;
   function writeSnapshot(address account, uint256 newBalance) external;

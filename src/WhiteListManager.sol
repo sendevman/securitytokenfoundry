@@ -7,6 +7,7 @@ import "src/interfaces/IWhiteListManager.sol";
 contract WhiteListManager is IWhiteListManager, Ownable {
 
   mapping(address => bool) private whitelist;
+  mapping(address => bool) private kyclist;
 
   constructor(address issuer) Ownable(issuer) {}
 
@@ -22,5 +23,19 @@ contract WhiteListManager is IWhiteListManager, Ownable {
   function removeFromWhitelist(address account) onlyOwner external {
     whitelist[account] = false;
     emit WhitelistUpdated(account, false);
+  }
+
+  function isKYCListed(address account) external view returns (bool) {
+    return kyclist[account];
+  }
+
+  function addToKYCList(address account) onlyOwner external {
+    kyclist[account] = true;
+    emit KYCListUpdated(account, true);
+  }
+
+  function removeFromKYClist(address account) onlyOwner external {
+    kyclist[account] = false;
+    emit KYCListUpdated(account, false);
   }
 }

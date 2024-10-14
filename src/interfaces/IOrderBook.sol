@@ -15,8 +15,8 @@ interface IOrderBook {
 
   struct Order {
     uint256 id;
-    uint256 amountSecurityToken;
-    uint256 amountSaleToken;
+    uint256 amountDSIPToken;
+    uint256 amountPROPTOToken;
     address trader;
     uint256 blockNumArrival;
     bool isBuyOrder;
@@ -25,9 +25,9 @@ interface IOrderBook {
 
   function cancelOrder(uint256 orderId) external;
 
-  function placeOrder(address trader, bool isBuyOrder, uint256 amountSecurityToken, uint256 amountSaleToken, uint256 expiryTimestamp) external returns (uint256 orderId); 
+  function placeOrder(address trader, bool isBuyOrder, uint256 amountDSIPToken, uint256 amountPROPTOToken, uint256 expiryTimestamp) external returns (uint256 orderId); 
 
-  function matchOrders(uint256 order1Id, uint256 order2Id) external returns (address traderA, address traderB, uint256 amountSaleToken, uint256 amountSecurityToken); 
+  function matchOrders(uint256 order1Id, uint256 order2Id) external returns (address traderA, address traderB, uint256 amountDSIPToken, uint256 amountPROPTOToken); 
 
   function getOrder(uint256 _id) external view returns (Order memory);
 

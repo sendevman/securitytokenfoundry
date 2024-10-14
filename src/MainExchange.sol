@@ -26,6 +26,8 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
   uint256 public totalSupplyDSIP;
   uint256 public totalSupplyPROPTO;
 
+  uint256 public DSIPPrice;
+
   mapping(address => uint256) public balanceDSIP;
   mapping(address => uint256) public balancePROPTO;
 
@@ -56,6 +58,13 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     _;
   }
 
+  modifier onlyKYC(address account) {
+    if (account != address(this) && !whiteListManager.isKYCListed(account)) {
+      revert DSIPNotKYCListed(account);
+    }
+    _;
+  }
+
   // Set Contract
   function setDSIPToken(IDSIP _dsipToken) external onlyOwner {
     dsipToken = _dsipToken;
@@ -64,7 +73,12 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
 
   function setProptoToken(IERC20 _proptoToken) external onlyOwner {
     proptoToken = _proptoToken;
+    _setFeeToken(_proptoToken);
     emit SetProptoToken(_proptoToken);
+  }
+
+  function EmergencyFund(IERC20 _proptoToken) external onlyOwner {
+
   }
 
   function setWhiteListManager(IWhiteListManager _whiteListManager) external onlyOwner {
@@ -88,6 +102,10 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     emit SetDividendPayer(_dividendPayer);
   }
 
+  function setDSIPPrice(uint256 _DSIPPrice) external onlyOwner {
+    DSIPPrice = _DSIPPrice;
+  }
+
   // check
   function getWhiteListed(address account) external view onlyOwner onlyWhitelisted(account) returns (bool) {
     return true;
@@ -106,7 +124,7 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     return orderBook; 
   }
 
-  function addLiquidity(uint256 amountDSIP, uint256 amountPROPTO) external {
+  function addLiquidity(uint256 amountDSIP, uint256 amountPROPTO) external onlyKYC(msg.sender) {
     require(amountDSIP > 0 && amountPROPTO > 0, "Amounts must be greater than zero");
 
     dsipToken.transferFrom(msg.sender, address(this), amountDSIP);
@@ -121,7 +139,7 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     emit LiquidityAdded(msg.sender, amountDSIP, amountPROPTO);
   }
 
-  function removeLiquidity(uint256 amountDSIP, uint256 amountPROPTO) external {
+  function removeLiquidity(uint256 amountDSIP, uint256 amountPROPTO) external onlyKYC(msg.sender) {
     require(balanceDSIP[msg.sender] >= amountDSIP, "Insufficient token A balance");
     require(balancePROPTO[msg.sender] >= amountPROPTO, "Insufficient token B balance");
 
@@ -137,17 +155,13 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     emit LiquidityRemoved(msg.sender, amountDSIP, amountPROPTO);
   }
 
-  function swap(uint256 amountIn, bool isDSIPToPROPTO) external {
+  function swap(uint256 amountIn, bool isDSIPToPROPTO) public onlyKYC(msg.sender) {
     require(amountIn > 0, "Amount must be greater than zero");
 
     if (isDSIPToPROPTO) {
-      require(balanceDSIP[msg.sender] >= amountIn, "Insufficient token A balance");
-
-      uint256 amountOut = calculateSwap(amountIn, totalSupplyDSIP, totalSupplyPROPTO);
+      uint256 amountOut = calculateSwap(amountIn, isDSIPToPROPTO);
       require(amountOut > 0, "Insufficient output amount");
-
-      balanceDSIP[msg.sender] += amountIn;
-      balancePROPTO[msg.sender] -= amountOut;
+      require(totalSupplyPROPTO >= amountOut, "Insufficient PROPTO Token balance");
 
       totalSupplyDSIP += amountIn;
       totalSupplyPROPTO -= amountOut;
@@ -157,13 +171,9 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
 
       emit Swap(msg.sender, amountIn, amountOut, dsipToken, proptoToken, true);
     } else {
-      require(balancePROPTO[msg.sender] >= amountIn, "Insufficient token B balance");
-
-      uint256 amountOut = calculateSwap(amountIn, totalSupplyPROPTO, totalSupplyDSIP);
+      uint256 amountOut = calculateSwap(amountIn, isDSIPToPROPTO);
       require(amountOut > 0, "Insufficient output amount");
-
-      balancePROPTO[msg.sender] += amountIn;
-      balanceDSIP[msg.sender] -= amountOut;
+      require(totalSupplyDSIP >= amountOut, "Insufficient DSIP Token balance");
       
       totalSupplyPROPTO += amountIn;
       totalSupplyDSIP -= amountOut;
@@ -175,9 +185,12 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     }
   }
 
-  function calculateSwap(uint256 amountIn, uint256 totalIn, uint256 totalOut) internal pure returns (uint256) {
-    // Implement your swap calculation logic here (e.g., using a constant product formula)
-    return (amountIn * totalOut) / (totalIn + amountIn);
+  function calculateSwap(uint256 amountIn, bool isDSIPToPROPTO) internal pure returns (uint256) {
+    if (isDSIPToPROPTO) {
+      return (amountIn * totalSupplyPROPTO) / (totalSupplyDSIP + amountIn);
+    } else {
+      return (amountIn * totalSupplyDSIP) / (totalSupplyPROPTO + amountIn);
+    }
   }
 
   // Dividends
@@ -207,27 +220,46 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     return lastPaymentTermIndex;
   }
   
-  // Fees
-  function setFeeToken(IERC20 token) external onlyOwner {
-    _setFeeToken(token);
-  }
+  // // Fees
+  // function setFeeToken(IERC20 token) external onlyOwner {
+  //   _setFeeToken(token);
+  // }
 
   function setFeeStructure(
     uint16 buyerPrimaryMarketFee,
     uint16 sellerPrimaryMarketFee,
+    uint16 referralPrimaryMarketFee,
+    uint16 emergencyPrimaryMarketFee,
     uint16 buyerSecondaryMarketFee,
     uint16 sellerSecondaryMarketFee,
+    uint16 referralSecondaryMarketFee,
+    uint16 emergencySecondaryMarketFee,
     uint16 dividendFeeReceiver,
     uint16 dividendFeeSender
   ) external onlyOwner {
-    _setFeeStructure(buyerPrimaryMarketFee, sellerPrimaryMarketFee, buyerSecondaryMarketFee, sellerSecondaryMarketFee, dividendFeeReceiver, dividendFeeSender);	
+    _setFeeStructure(
+      buyerPrimaryMarketFee,
+      sellerPrimaryMarketFee,
+      referralPrimaryMarketFee,
+      emergencyPrimaryMarketFee,
+      buyerSecondaryMarketFee,
+      sellerSecondaryMarketFee,
+      referralSecondaryMarketFee,
+      emergencySecondaryMarketFee,
+      dividendFeeReceiver,
+      dividendFeeSender
+    );	
   }
 
-  function setFeeReceiverShares(uint8 marketType, address receiver, uint256 shares) external
-    onlyOwner
-    onlyWhitelisted(receiver)
-  {
-    _setFeeReceiverShares(marketType, receiver, shares);
+  // function setFeeReceiverShares(uint8 marketType, address receiver, uint256 shares) external
+  //   onlyOwner
+  //   onlyWhitelisted(receiver)
+  // {
+  //   _setFeeReceiverShares(marketType, receiver, shares);
+  // }
+
+  function setUserReferralPair(address user, address referral) external {
+    _setUserReferralPair(user, referral);
   }
 
   function redeemFee(uint8 marketType, IERC20 token, address recipient) external
@@ -238,8 +270,8 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
   }
 
     // Trading functions
-  function placeOrder(bool isBuyOrder, uint256 amountSecurityToken, uint256 amountSaleToken, uint256 expiryTimestamp) public
-    onlyWhitelisted(msg.sender)
+  function placeOrder(bool isBuyOrder, uint256 amountDSIPToken, uint256 amountPROPTOToken, uint256 expiryTimestamp) public
+    onlyKYC(msg.sender)
     whenNotPaused
     returns (uint256)
   {
@@ -248,28 +280,28 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
     // approval, but that'd be only a minor annoyance.
 
     // TODO: Require a fee for placing orders to avoid spam?
-    (uint256 _buyerFee, uint256 _sellerFee) = _getFeeAmount(2, amountSaleToken);
     if (isBuyOrder) {
-      require(dsipToken.allowance(msg.sender, address(this)) >= amountSaleToken , "Insufficient sale token allowance");
-      require(dsipToken.balanceOf(msg.sender) >= amountSaleToken , "Insufficient sale token balance");
-      require(proptoToken.allowance(msg.sender, address(this)) >= _buyerFee, "Insufficient fee token allowance");
-      require(proptoToken.balanceOf(msg.sender) >= _buyerFee, "Insufficient fee token balance");
+      (uint256 _buyerFee, uint256 _sellerFee) = _getFeeAmount(2, amountPROPTOToken);
+      require(proptoToken.allowance(msg.sender, address(this)) >= (amountPROPTOToken + _buyerFee) , "Insufficient propto token allowance");
+      require(proptoToken.balanceOf(msg.sender) >= (amountPROPTOToken + _buyerFee) , "Insufficient propto token balance");
     } else {
-      require(dsipToken.balanceOf(msg.sender) >= amountSecurityToken, "Insufficient security token");
-      require(proptoToken.allowance(msg.sender, address(this)) >= _sellerFee, "Insufficient fee token allowance");
-      require(proptoToken.balanceOf(msg.sender) >= _sellerFee, "Insufficient fee token balance");
-      require(unlockedTokens(msg.sender, amountSecurityToken, dsipToken.balanceOf(msg.sender)), "Tokens are locked");
+      (uint256 _buyerFee, uint256 _sellerFee) = _getFeeAmount(2, amountDSIPToken * DSIPPrice);
+      require(dsipToken.allowance(msg.sender, address(this)) >= amountDSIPToken, "Insufficient DSIP token");
+      require(dsipToken.balanceOf(msg.sender) >= amountDSIPToken, "Insufficient DSIP token");
+      require(proptoToken.allowance(msg.sender, address(this)) >= _sellerFee, "Insufficient propto token allowance");
+      require(proptoToken.balanceOf(msg.sender) >= _sellerFee, "Insufficient propto token balance");
+      require(unlockedTokens(msg.sender, amountDSIPToken, dsipToken.balanceOf(msg.sender)), "Tokens are locked");
     }
-    return orderBook.placeOrder(msg.sender, isBuyOrder, amountSecurityToken, amountSaleToken, expiryTimestamp);
+    return orderBook.placeOrder(msg.sender, isBuyOrder, amountDSIPToken, amountPROPTOToken, expiryTimestamp);
   }
 
   function matchOrders(uint256 order1Id, uint256 order2Id) public {
     // We don't need to perform whitelist checks, since they
     // are already performed by _transferFromWithFee
-    (address _traderA, address _traderB, uint256 _amountSaleToken, uint256 _amountSecurityToken) = orderBook.matchOrders(order1Id, order2Id);
+    (address _traderA, address _traderB, uint256 _amountPROPTOToken, uint256 _amountDSIPToken) = orderBook.matchOrders(order1Id, order2Id);
 
-    require(dsipToken.transferFrom(_traderA, _traderB, _amountSaleToken), "Transfer failed");
-    require(_transferFromWithFee(_traderB, _traderA, _amountSecurityToken, _amountSaleToken), "Transfer failed");
+    require(proptoToken.transferFrom(_traderA, _traderB, _amountPROPTOToken), "Transfer failed");
+    require(_transferFromWithFee(_traderB, _traderA, _amountDSIPToken, _amountPROPTOToken), "Transfer failed");
   }
 
   function matchOrdersBatch(uint256[][2] memory orderPairs) public {
@@ -304,15 +336,18 @@ contract MainExchange is IMainExchange, Ownable, Pausable, ReentrancyGuard, FeeM
   {
     require(unlockedTokens(sender, amount, dsipToken.balanceOf(sender)), "Tokens are locked");
     _takeFee(2, sender, recipient, amountPaid);
-    dsipToken.transferFromWithFee(sender, recipient, amount);
+    dsipToken.transferFrom(sender, recipient, amount);
+    writeSnapshot(recipient, dsipToken.balanceOf(recipient));
+    writeSnapshot(sender, dsipToken.balanceOf(sender));
+    annotateLockedFunds(recipient, amount);
     return true;
   }
 
-  function writeSnapshot(address account, uint256 newBalance) external {
+  function writeSnapshot(address account, uint256 newBalance) public {
     _writeSnapshot(account, newBalance);
   }
 
-  function annotateLockedFunds(address account, uint256 amount) external {
+  function annotateLockedFunds(address account, uint256 amount) public {
     _annotateLockedFunds(account, amount);
   }
 }

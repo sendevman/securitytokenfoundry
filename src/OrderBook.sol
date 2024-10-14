@@ -4,7 +4,7 @@ pragma solidity ^0.8.18;
 import "src/interfaces/IOrderBook.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract OrderBook is IOrderBook{
+contract OrderBook is IOrderBook {
 
   using Math for uint;
 
@@ -19,32 +19,32 @@ contract OrderBook is IOrderBook{
 
   mapping(uint256 => Order) public orders;
 
-  address public immutable securityToken;
+  address public immutable mainExchange;
 
-  modifier onlySecurityToken() {
-    require(msg.sender==securityToken, "Not security token");
+  modifier onlyMainExchange() {
+    require(msg.sender == mainExchange, "Not security token");
     _;
   }
 
-  constructor(address _securityToken) {
-    securityToken = _securityToken;
+  constructor(address _mainExchange) {
+    mainExchange = _mainExchange;
   }
 
-  function setMaxPriceDiffForNewOrdersPct(uint8 _pct) external onlySecurityToken {
+  function setMaxPriceDiffForNewOrdersPct(uint8 _pct) external onlyMainExchange {
     maxPriceDiffForNewOrdersPct = _pct;
   }
 
   function placeOrder(
     address trader,
     bool isBuyOrder,
-    uint256 amountSecurityToken,
-    uint256 amountSaleToken,
+    uint256 amountDSIPToken,
+    uint256 amountPROPTOToken,
     uint256 expiryTimestamp
-  ) public onlySecurityToken returns (uint256) {
+  ) public onlyMainExchange returns (uint256) {
     nextOrderId++;
     uint256 orderId = nextOrderId;
-    Order memory _order = Order(orderId, amountSecurityToken, amountSaleToken, trader, block.number, isBuyOrder, expiryTimestamp);
-    orders[orderId] = _order; 
+    Order memory _order = Order(orderId, amountDSIPToken, amountPROPTOToken, trader, block.number, isBuyOrder, expiryTimestamp);
+    orders[orderId] = _order;
     emit OrderPlaced(_order);
     return orderId;
   }
@@ -61,7 +61,7 @@ contract OrderBook is IOrderBook{
   function matchOrders(
     uint256 order1Id,
     uint256 order2Id
-  ) public onlySecurityToken returns (address, address, uint256, uint256) {
+  ) public onlyMainExchange returns (address, address, uint256, uint256) {
     require (
       (order1Id <= nextOrderId) && 
       (order2Id <= nextOrderId) && 
@@ -95,53 +95,53 @@ contract OrderBook is IOrderBook{
       revert OrderNotFoundOrExpired();
     }
 
-    uint256 _price1 = order1.amountSaleToken *1e18 / order1.amountSecurityToken;
-    uint256 _price2 = order2.amountSaleToken *1e18 / order2.amountSecurityToken;
+    uint256 _price1 = order1.amountPROPTOToken * 1e18 / order1.amountDSIPToken;
+    uint256 _price2 = order2.amountPROPTOToken * 1e18 / order2.amountDSIPToken;
 
-    uint256 _amountSecurityToken;
-    uint256 _amountSaleToken;
+    uint256 _amountDSIPToken;
+    uint256 _amountPROPTOToken;
 
-    _amountSecurityToken = order1.amountSecurityToken.min(order2.amountSecurityToken);
+    _amountDSIPToken = order1.amountDSIPToken.min(order2.amountDSIPToken);
 
     // We take the price of the first arriving order
     if (order1.blockNumArrival < order2.blockNumArrival) {
-      _amountSaleToken = _amountSecurityToken * order1.amountSaleToken / order1.amountSecurityToken; 
+      _amountPROPTOToken = _amountDSIPToken * order1.amountPROPTOToken / order1.amountDSIPToken;
     } else {
-      _amountSaleToken = _amountSecurityToken * order2.amountSaleToken / order2.amountSecurityToken; 
+      _amountPROPTOToken = _amountDSIPToken * order2.amountPROPTOToken / order2.amountDSIPToken;
     }
 
-    if (orders[order1Id].amountSecurityToken==_amountSecurityToken) {
+    if (orders[order1Id].amountDSIPToken == _amountDSIPToken) {
       // Order 1 matched completely
       emit OrderDeleted(order1);
       delete orders[order1Id];
 
-      orders[order2Id].amountSecurityToken -= _amountSecurityToken;
+      orders[order2Id].amountDSIPToken -= _amountDSIPToken;
     } else {
       // Order 2 matched completely
       emit OrderDeleted(order2);
       delete orders[order2Id];
 
-      orders[order1Id].amountSecurityToken -= _amountSecurityToken;
+      orders[order1Id].amountDSIPToken -= _amountDSIPToken;
 
       emit OrderUpdated(order2);
     }
 
     // Make sure the price of the order does not
     // exceed 10% of the running last price
-    if (totalSharesForWeightedSum>0) {
+    if (totalSharesForWeightedSum > 0) {
       uint256 weightedAveragePrice = weightedSum * 1e18 / totalSharesForWeightedSum; 
       uint8 maxPct = maxPriceDiffForNewOrdersPct;
       require(
-        (_price1 <= weightedAveragePrice * (100+maxPct) / 100) && (_price1 >= weightedAveragePrice * (100-maxPct) / 100) &&
-        (_price2 <= weightedAveragePrice * (100+maxPct) / 100) && (_price2 >= weightedAveragePrice * (100-maxPct) / 100),
+        (_price1 <= weightedAveragePrice * (100 + maxPct) / 100) && (_price1 >= weightedAveragePrice * (100 - maxPct) / 100) &&
+        (_price2 <= weightedAveragePrice * (100 + maxPct) / 100) && (_price2 >= weightedAveragePrice * (100 - maxPct) / 100),
         "Price deviation from weighted average too high"
       );
     }
 
     uint256 timeDelta = block.timestamp - lastOrderTime;
     uint256 decay = decayFactor ** timeDelta / 100 ** timeDelta; 
-    weightedSum = weightedSum * decay + _amountSaleToken;
-    totalSharesForWeightedSum = totalSharesForWeightedSum * decay + _amountSecurityToken;
+    weightedSum = weightedSum * decay + _amountPROPTOToken;
+    totalSharesForWeightedSum = totalSharesForWeightedSum * decay + _amountDSIPToken;
     lastOrderTime = block.timestamp;
 
     // We could have made this test earlier and fail early in case
@@ -150,10 +150,10 @@ contract OrderBook is IOrderBook{
     // correct case and mildly increase gas costs for invalid orders.
     if (order1.isBuyOrder && !order2.isBuyOrder) {
       require(_price1 >= _price2, "Orders don't match");
-      return (order1.trader, order2.trader, _amountSaleToken, _amountSecurityToken);
+      return (order1.trader, order2.trader, _amountPROPTOToken, _amountDSIPToken);
     } else if (order2.isBuyOrder && !order1.isBuyOrder) {
       require(_price1 <= _price2, "Orders don't match");
-      return (order2.trader, order1.trader, _amountSaleToken, _amountSecurityToken);
+      return (order2.trader, order1.trader, _amountPROPTOToken, _amountDSIPToken);
     } else {
       revert InvalidOrderType();
     }

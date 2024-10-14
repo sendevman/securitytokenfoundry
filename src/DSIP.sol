@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: All rights reserved and belonging to REClosure Ltd. 2023 
 pragma solidity ^0.8.18;
 
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -91,19 +91,6 @@ contract DSIP is IDSIP, Ownable, Pausable, ReentrancyGuard, ERC20Capped {
     require(mainExchange.getWhiteListed(recipient), "Not WhiteListed");
     require(mainExchange.getPartner(sender, recipient), "Not Partner");
     return super.transferFrom(sender, recipient, amount);
-  }
-
-  function transferFromWithFee(address sender, address recipient, uint256 amount) public
-    whenNotPaused
-    nonReentrant
-    returns (bool)
-  {
-    require(mainExchange.getWhiteListed(sender), "Not WhiteListed");
-    require(mainExchange.getWhiteListed(recipient), "Not WhiteListed");
-    mainExchange.writeSnapshot(recipient, balanceOf(recipient));
-    mainExchange.writeSnapshot(sender, balanceOf(sender));
-    mainExchange.annotateLockedFunds(recipient, amount);
-    return true;
   }
 
   function forceTransfer(address from, address to, uint256 amount) public

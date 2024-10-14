@@ -2,10 +2,12 @@
 pragma solidity ^0.8.18;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "src/interfaces/IEmergencyFund.sol";
 
 abstract contract FeeManager {
 
-error InvalidMarketType();
+  IEmergencyFund emergencyFund;
+  error InvalidMarketType();
 
   event SetFeeTokenEvent(IERC20 token);
   event FeeRedeemedEvent(uint8 marketType, address recipient, uint256 payment);
@@ -15,6 +17,8 @@ error InvalidMarketType();
   struct FeeStructure {
     uint16 buyer;
     uint16 seller;
+    uint16 referral;
+    uint16 emergency;
   }
 
   FeeStructure private primaryMarketFee;
@@ -39,14 +43,24 @@ error InvalidMarketType();
   // marketType => totalShares
   mapping(uint8 => uint256) private totalShares;
 
+  mapping(address => address) private userReferralPair;
+
   constructor() {}
 
+  function setEmergencyFund(IEmergencyFund _emergencyFund) external {
+    emergencyFund = _emergencyFund;
+  }
+
+  function _setUserReferralPair(address user, address referral) internal {
+    userReferralPair[user] = referral;
+  }
+
   function _getFeesByMarket(uint8 marketType) private view returns (FeeStructure memory) {
-    if (marketType==1) {
+    if (marketType == 1) {
       return primaryMarketFee;
-    } else if (marketType==2) {
+    } else if (marketType == 2) {
       return secondaryMarketFee;
-    } else if (marketType==3) {
+    } else if (marketType == 3) {
       return dividendFee;
     } else {
       revert InvalidMarketType();
@@ -61,26 +75,45 @@ error InvalidMarketType();
   }
 
   function _takeFee(uint8 marketType, address seller, address buyer, uint256 amount) internal {
-    require(marketType<3, "Use _takeDividendFee");
+    require(marketType < 3, "Use _takeDividendFee");
     IERC20 _feeToken = feeToken;
     FeeStructure memory _fees;
     _fees = _getFeesByMarket(marketType);
-    totalOwed[marketType][_feeToken]+=amount * (_fees.buyer + _fees.seller) / FEE_DIVIDER;
+    totalOwed[marketType][_feeToken] += amount * (_fees.buyer + _fees.seller) / FEE_DIVIDER;
 
     // The IFs are there to skip computations when there's no fee (gas savings)
-    if (_fees.buyer>0) {
+    if (_fees.buyer > 0) {
+      uint256 buyerFee = amount * _fees.buyer / FEE_DIVIDER;
+      if (userReferralPair[buyer] != address(0)) {
+        _takeReferralFee(marketType, userReferralPair[buyer], buyerFee * _fees.referral / FEE_DIVIDER);
+      }
+      emergencyFund.receiveFee(buyer, buyerFee * _fees.emergency / FEE_DIVIDER);
       require(
-        _feeToken.transferFrom(buyer, address(this), amount * _fees.buyer / FEE_DIVIDER),
+        _feeToken.transferFrom(buyer, address(this), buyerFee - buyerFee * _fees.emergency / FEE_DIVIDER),
         "Error getting buyer fee"
       );
     }
 
-    if (_fees.seller>0) {
+    if (_fees.seller > 0) {
+      uint256 sellerFee = amount * _fees.seller / FEE_DIVIDER;
+      if (userReferralPair[seller] != address(0)) {
+        _takeReferralFee(marketType, userReferralPair[seller], sellerFee * _fees.referral / FEE_DIVIDER);
+      }
+      emergencyFund.receiveFee(seller, sellerFee * _fees.emergency / FEE_DIVIDER);
       require(
-        _feeToken.transferFrom(seller, address(this), amount * _fees.seller / FEE_DIVIDER ),
+        _feeToken.transferFrom(seller, address(this), sellerFee - sellerFee * _fees.emergency / FEE_DIVIDER),
         "Error getting seller fee"
       );
     }
+  }
+
+  function _takeReferralFee(uint8 _marketType, address _payee, uint256 _shares) internal {
+    require(_payee != address(0), "Invalid payee address");
+    require(_shares > 0, "Shares must be greater than zero");
+    require(_shares < type(uint128).max, "Num shares cannot exceed uint128");
+
+    userShares[_marketType][_payee] += _shares;
+    totalShares[_marketType] += _shares;
   }
 
   function _takeDividendFee(address seller, uint256 amount, IERC20 _token) internal returns (uint256) {
@@ -94,7 +127,7 @@ error InvalidMarketType();
     FeeStructure memory _fees;
     uint8 _marketType = 3;
     _fees = _getFeesByMarket(_marketType);
-    totalOwed[_marketType][_feeToken]+=amount * (_fees.buyer + _fees.seller) / FEE_DIVIDER;
+    totalOwed[_marketType][_feeToken] += amount * (_fees.buyer + _fees.seller) / FEE_DIVIDER;
 
     require(
       _feeToken.transferFrom(seller, address(this), amount * (_fees.buyer + _fees.seller) / FEE_DIVIDER ),
@@ -117,14 +150,18 @@ error InvalidMarketType();
   function _setFeeStructure(
     uint16 _buyerPrimaryMarketFee,
     uint16 _sellerPrimaryMarketFee,
+    uint16 _referralPrimaryMarketFee,
+    uint16 _emergencyPrimaryMarketFee,
     uint16 _buyerSecondaryMarketFee,
     uint16 _sellerSecondaryMarketFee,
+    uint16 _referralSecondaryMarketFee,
+    uint16 _emergencySecondaryMarketFee,
     uint16 _dividendFeeReceiver,
     uint16 _dividendFeeSender
   ) internal {
-    primaryMarketFee  = FeeStructure(_buyerPrimaryMarketFee, _sellerPrimaryMarketFee);
-    secondaryMarketFee  = FeeStructure(_buyerSecondaryMarketFee, _sellerSecondaryMarketFee);
-    dividendFee = FeeStructure(_dividendFeeReceiver, _dividendFeeSender);
+    primaryMarketFee  = FeeStructure(_buyerPrimaryMarketFee, _sellerPrimaryMarketFee, _referralPrimaryMarketFee, _emergencyPrimaryMarketFee);
+    secondaryMarketFee  = FeeStructure(_buyerSecondaryMarketFee, _sellerSecondaryMarketFee, _referralSecondaryMarketFee, _emergencySecondaryMarketFee);
+    dividendFee = FeeStructure(_dividendFeeReceiver, _dividendFeeSender, 0, 0);
 
     emit SetFeeStructureEvent(primaryMarketFee, secondaryMarketFee, dividendFee);
   }
@@ -136,7 +173,7 @@ error InvalidMarketType();
 
     uint256 _shares0 = userShares[_marketType][_payee];
     if (_shares > _shares0) {
-      uint256 delta = _shares - _shares0; 
+      uint256 delta = _shares - _shares0;
       userShares[_marketType][_payee] += delta;
       totalShares[_marketType] += delta;
     } else {
@@ -148,7 +185,7 @@ error InvalidMarketType();
   }
 
   function _redeemFee(uint8 _marketType, IERC20 _token, address _recipient) internal {
-    require(address(_token)!=address(this), "Cannot redeem DSIP token");
+    require(address(_token) != address(this), "Cannot redeem DSIP token");
 
     uint256 _shares = userShares[_marketType][_recipient];
     require(_shares > 0, "Recipient not entitled to payment");
